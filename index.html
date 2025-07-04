@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>CIplay Manager</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #1e1e1e;
+      color: white;
+      display: flex;
+    }
+    .main {
+      flex: 3;
+      padding-right: 20px;
+    }
+    .sidebar {
+      flex: 1;
+      border-left: 1px solid #444;
+      padding-left: 20px;
+    }
+    input, button {
+      padding: 10px;
+      margin: 5px;
+    }
+    ul {
+      list-style-type: none;
+      padding: 0;
+    }
+    li {
+      background: #333;
+      margin: 5px 0;
+      padding: 10px;
+      border-radius: 5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .guide-toggle {
+      cursor: pointer;
+      background: #444;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+    .hidden {
+      display: none;
+    }
+    #popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: #ff4444;
+      font-size: 1.4rem;
+      font-weight: bold;
+      padding: 25px 50px;
+      border-radius: 15px;
+      box-shadow: 0 0 30px rgba(255, 68, 68, 0.8);
+      z-index: 1000;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      max-width: 80%;
+      word-wrap: break-word;
+      pointer-events: none;
+      transition: background-color 0.5s ease;
+    }
+    #popupMessage {
+      color: black;
+    }
+    #cooldownTimer {
+      margin-top: 10px;
+      font-size: 1rem;
+      font-weight: normal;
+      white-space: pre-line;
+      color: white;
+    }
+    #timerDisplay {
+      font-size: 1.2rem;
+      font-weight: bold;
+      color: #00e676;
+      margin-left: 10px;
+    }
+    #startTimerBtn {
+      padding: 6px 10px;
+      font-size: 0.9rem;
+      margin-left: 10px;
+    }
+    .flashing {
+      animation: flash 0.5s infinite alternate;
+    }
+    @keyframes flash {
+      0% { background-color: red; }
+      100% { background-color: blue; }
+    }
+  </style>
+</head>
+<body>
+  <audio id="cooldownSound" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto"></audio>
+  <audio id="hornSound" src="https://actions.google.com/sounds/v1/transportation/train_horn.ogg" preload="auto"></audio>
+  <audio id="alertSound" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto" loop></audio>
+
+  <div class="main">
+    <h1>
+      CIplay Manager
+      <button id="startTimerBtn" onclick="startTimer()">▶ Start Timer</button>
+      <button onclick="unlockModeToggle()">🔒 Toggle Mode</button>
+      <span id="timerDisplay"></span>
+    </h1>
+
+    <input type="text" id="sentenceInput" placeholder="Enter a CIplay">
+    <button onclick="addCIplay();">Add CI Play</button>
+    <button onclick="removeLastCIplay()">Remove Last CIplay</button>
+    <button onclick="resetCIplays()">Reset</button>
+    <button onclick="saveCIplays()">Save</button>
+
+    <h2>CI Plays:</h2>
+    <ul id="sentenceList"></ul>
+
+    <h3>Spacebar Press Count: <span id="counter">0</span></h3>
+  </div>
+
+  <div class="sidebar">
+    <div class="guide-toggle" onclick="toggleGuide()">📘 User Guide (click to toggle)</div>
+    <div id="guideContent" class="hidden">
+      <ol>
+        <li>Type imu first CI play sa white bar</li>
+        <li>Click Add CI Play</li>
+        <li>Type ang second CI play nimo then click Add CI Play hangtud 10 CI play</li>
+        <li>Then click SAVE</li>
+        <li>Press spacebar will delete the first CI play na imu giinput then naa pud tay spacebar counter sa taas.</li>
+        <li>After 10 CI click RESET para mabalik ang CI play na imu gi save.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div id="popup">
+    <div id="popupMessage"></div>
+    <div id="cooldownTimer"></div>
+  </div>
+
+  <!-- Password Modal -->
+  <div id="passwordModal" style="
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: #333; color: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 0 10px black;
+    z-index: 2000;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+  ">
+    <label for="passwordInput">Enter password to toggle mode:</label>
+    <input type="password" id="passwordInput" style="margin: 10px 0; padding: 8px;">
+    <button onclick="checkPassword()">Submit</button>
+    <button onclick="closePasswordModal()">Cancel</button>
+  </div>
+
+  <script>
+    const input = document.getElementById('sentenceInput');
+    const list = document.getElementById('sentenceList');
+    const counterDisplay = document.getElementById('counter');
+    const guideContent = document.getElementById('guideContent');
+    const popup = document.getElementById('popup');
+    const popupMessage = document.getElementById('popupMessage');
+    const cooldownTimer = document.getElementById('cooldownTimer');
+    const cooldownSound = document.getElementById('cooldownSound');
+    const hornSound = document.getElementById('hornSound');
+    const alertSound = document.getElementById('alertSound');
+    const timerDisplay = document.getElementById('timerDisplay');
+
+    let counter = 0;
+    let cooldown = false;
+    let normalTimer = 20;
+    let cooldownSeconds = 60;
+    let normalInterval;
+    let cooldownInterval;
+    let soundTimeout;
+    let startTime = null;
+    let timerRunning = false;
+    let lastMinutePlayed = 0;
+
+    let timerMode = 'real';
+    let isLocked = true;
+
+    function unlockModeToggle() {
+      const modal = document.getElementById('passwordModal');
+      const input = document.getElementById('passwordInput');
+      input.value = '';
+      modal.style.display = 'flex';
+      input.focus();
+    }
+
+    function closePasswordModal() {
+      document.getElementById('passwordModal').style.display = 'none';
+    }
+
+    function checkPassword() {
+      const password = document.getElementById('passwordInput').value;
+      if (password === 'marskun1012') {
+        isLocked = false;
+        timerMode = (timerMode === 'real') ? 'test' : 'real';
+
+        if (timerMode === 'test') {
+          normalTimer = 2;
+          cooldownSeconds = 4;
+        } else {
+          normalTimer = 20;
+          cooldownSeconds = 60;
+        }
+
+        alert(`Mode set to: ${timerMode.toUpperCase()}`);
+        closePasswordModal();
+      } else {
+        alert("Incorrect password.");
+      }
+    }
+
+    function startTimer() {
+      if (timerRunning) return;
+      timerRunning = true;
+      startTime = Date.now();
+
+      const duration = timerMode === 'test' ? 10 * 1000 : 21 * 60 * 1000;
+      const endTime = startTime + duration;
+
+      function updateTimer() {
+        const now = Date.now();
+        const remaining = Math.max(0, endTime - now);
+        const elapsed = duration - remaining;
+        const minutesElapsed = Math.floor(elapsed / (timerMode === 'test' ? 1000 : 60000));
+
+        const minutes = Math.floor(remaining / 60000);
+        const seconds = Math.floor((remaining % 60000) / 1000);
+        timerDisplay.textContent = `🕒 ${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+        if (minutesElapsed > lastMinutePlayed) {
+          hornSound.play();
+          lastMinutePlayed = minutesElapsed;
+        }
+
+        if (remaining > 0) {
+          requestAnimationFrame(updateTimer);
+        } else {
+          triggerEndTimerAlert();
+        }
+      }
+
+      updateTimer();
+    }
+
+    function triggerEndTimerAlert() {
+      alertSound.play();
+      showPopup("⛔ STOP RECORDING");
+      document.body.classList.add('flashing');
+      document.body.addEventListener('click', stopFlashing, { once: true });
+    }
+
+    function stopFlashing() {
+      document.body.classList.remove('flashing');
+      alertSound.pause();
+      alertSound.currentTime = 0;
+    }
+
+    function addCIplay(text = null) {
+      const item = text || input.value.trim();
+      if (item) {
+        const li = document.createElement('li');
+        const span = document.createElement('span');
+        span.textContent = item;
+        const delBtn = document.createElement('button');
+        delBtn.textContent = '❌';
+        delBtn.onclick = () => list.removeChild(li);
+        li.appendChild(span);
+        li.appendChild(delBtn);
+        list.appendChild(li);
+        if (!text) input.value = '';
+      }
+    }
+
+    function removeLastCIplay() {
+      if (list.lastChild) list.removeChild(list.lastChild);
+    }
+
+    function resetCIplays() {
+      list.innerHTML = '';
+      counter = 0;
+      counterDisplay.textContent = counter;
+      loadCIplays();
+    }
+
+    function saveCIplays() {
+      const items = Array.from(list.children).map(li => li.querySelector('span').textContent);
+      localStorage.setItem('ci_sentences', JSON.stringify(items));
+    }
+
+    function loadCIplays() {
+      const saved = localStorage.getItem('ci_sentences');
+      if (saved) {
+        JSON.parse(saved).forEach(text => addCIplay(text));
+      }
+    }
+
+    function toggleGuide() {
+      guideContent.classList.toggle('hidden');
+    }
+
+    function showPopup(message) {
+      popupMessage.textContent = message;
+      popup.style.display = 'flex';
+    }
+
+    function startCooldowns() {
+      let normalRemaining = normalTimer;
+      let cooldownRemaining = cooldownSeconds;
+      cooldown = true;
+
+      popup.style.backgroundColor = '#ff4444';
+      cooldownTimer.textContent = `CIPlay: ${normalRemaining}s
+Gameplay: ${cooldownRemaining}s`;
+
+      normalInterval = setInterval(() => {
+        normalRemaining--;
+        if (normalRemaining <= 0) clearInterval(normalInterval);
+        updateCooldownDisplay(normalRemaining, cooldownRemaining);
+      }, 1000);
+
+      cooldownInterval = setInterval(() => {
+        cooldownRemaining--;
+        if (cooldownRemaining <= 0) {
+          clearInterval(cooldownInterval);
+          cooldownTimer.textContent = '';
+          popup.style.backgroundColor = '#448aff';
+          cooldownSound.play();
+          soundTimeout = setTimeout(() => cooldownSound.pause(), 10000);
+          cooldown = false;
+        }
+        updateCooldownDisplay(normalRemaining, cooldownRemaining);
+      }, 1000);
+    }
+
+    function updateCooldownDisplay(n, c) {
+      cooldownTimer.textContent = `CIPlay: ${Math.max(0,n)}s
+Gameplay: ${Math.max(0,c)}s`;
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        counter++;
+        counterDisplay.textContent = counter;
+
+        if (!cooldown && list.firstChild) {
+          const first = list.firstChild.querySelector('span').textContent;
+          showPopup(first);
+          list.removeChild(list.firstChild);
+          startCooldowns();
+        }
+
+        cooldownSound.pause();
+        clearTimeout(soundTimeout);
+        e.preventDefault();
+      }
+    });
+
+    loadCIplays();
+</script>
+</body>
+</html>
